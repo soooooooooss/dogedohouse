@@ -112,33 +112,34 @@ else:
         st.write("↓のリストから完了した取引を「返済済み」に変更できます。")
         
 
-        # リストのヘッダーを表示
-col_header_details, col_header_action = st.columns([4, 1.5]) # カラムを2つに変更
-col_header_details.write("**詳細**")
-col_header_action.write("**アクション**")
+# ヘッダー表示の行は削除します
 
 # 未返済の項目を一行ずつ表示
 for index, row in df_unpaid_management.iterrows():
-    # 各データは裏側で取得するだけ
+    # 各データは裏側で取得
     borrower = row['借りた人']
     lender = row['貸した人']
     amount = int(row['金額（円）'])
     memo = row.get('内容', '')
 
-    # 表示する文章を作成
-    display_text = f"{borrower}が{lender}に{amount:,}円払う"
-    if memo:
-        display_text += f" ({memo})"
+    # Markdownを使って色付きの表示テキストを生成
+    borrower_colored = f"<span style='color: #F63366;'><b>{borrower}</b></span>" # 赤色
+    lender_colored = f"<span style='color: #0068C9;'><b>{lender}</b></span>"   # 青色
     
-    # UIのレイアウトを2つのカラムに変更
+    display_text_md = f"{borrower_colored} が {lender_colored} に **{amount:,}円** 払う"
+    if memo:
+        display_text_md += f" <span style='font-size: 0.9em; opacity: 0.7;'>({memo})</span>" # 内容は少し小さく表示
+
+    # UIのレイアウトを2つのカラムに
     col_details, col_action = st.columns([4, 1.5])
     
     with col_details:
-        st.text(display_text) # 1つ目のカラムに生成した文章を配置
+        # st.text() の代わりに st.markdown() を使用
+        st.markdown(display_text_md, unsafe_allow_html=True)
         
     with col_action:
-        # 2つ目のカラムにボタンを配置
-        if st.button("返済完了にする", key=f"repay_{index}"):
+        # ボタンを配置
+        if st.button("返済完了", key=f"repay_{index}"):
             sheet.update_cell(index + 2, status_col_index, "返済済み")
             st.toast(f"取引を「返済済み」に更新しました！")
             st.rerun()
