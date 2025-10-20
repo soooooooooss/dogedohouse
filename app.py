@@ -139,7 +139,7 @@ st.markdown("---")
 
 
 # --- ▼▼▼【機能修正】新規登録フォーム ▼▼▼ ---
-st.subheader("✍️ 借金登録")
+st.subheader("✍️ 貸し借り登録")
 with st.form("new_transaction_form", clear_on_submit=True):
     col1, col2 = st.columns(2)
     with col1:
