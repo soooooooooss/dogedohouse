@@ -19,122 +19,146 @@ client = gspread.authorize(credentials)
 
 # スプレッドシートを開く
 SHEET_NAME = "dogedohouse_data"
-sheet = client.open(SHEET_NAME).sheet1
+try:
+    sheet = client.open(SHEET_NAME).sheet1
+except gspread.exceptions.SpreadsheetNotFound:
+    st.error(f"エラー: スプレッドシート '{SHEET_NAME}' が見つかりません。")
+    st.stop()
+
 
 # --- データの読み込みと前処理 ---
 data = sheet.get_all_records()
-# データがない場合は空のDataFrameを作成
 if not data:
-    df = pd.DataFrame(columns=["借りた人", "貸した人", "金額（円）", "日時", "状態"])
+    # ヘッダー列を定義
+    columns = ["借りた人", "貸した人", "金額（円）", "内容", "日時", "状態"]
+    df = pd.DataFrame(columns=columns)
 else:
     df = pd.DataFrame(data)
 
-# 金額を数値に変換（エラーは無視してNaNにする）
+# データがない場合や列が不足している場合に備える
+required_cols = ["借りた人", "貸した人", "金額（円）", "状態"]
+for col in required_cols:
+    if col not in df.columns:
+        st.error(f"エラー: スプレッドシートに必須の列 '{col}' がありません。")
+        st.stop()
+
+# 金額を数値に変換
 df["金額（円）"] = pd.to_numeric(df["金額（円）"], errors='coerce')
-# "未返済"のデータのみを対象にする
-df_unpaid = df[df["状態"] == "未返済"].copy()
 
 
 # --- Streamlit アプリのUI部分 ---
 st.title("🐶 dogedohouse")
 st.write("4人のお金の貸し借りをリアルタイムで管理！")
 
-st.subheader("📝 貸し借り一覧")
-# 返済済みのものも含めて全データを表示
+st.subheader("📝 貸し借り全履歴")
 st.dataframe(df)
 
-
-# --- ▼▼▼ ここから集計機能を追加 ▼▼▼ ---
-
+# --- 集計結果（既存の機能）---
 st.subheader("📊 集計結果")
-
-# メンバーリスト
+df_unpaid = df[df["状態"] == "未返済"].copy()
 members = ["よしい", "しゅんき", "のがみ", "そう"]
 balances = {member: 0 for member in members}
 
 if not df_unpaid.empty:
-    # 各メンバーの収支を計算
     for index, row in df_unpaid.iterrows():
-        lender = row["貸した人"]
-        borrower = row["借りた人"]
-        amount = row["金額（円）"]
-
-        if lender in balances:
-            balances[lender] += amount
-        if borrower in balances:
-            balances[borrower] -= amount
-
-    # 収支を2列で表示
+        balances[row["貸した人"]] += row["金額（円）"]
+        balances[row["借りた人"]] -= row["金額（円）"]
+    
     cols = st.columns(len(members))
     for i, (member, balance) in enumerate(balances.items()):
         with cols[i]:
             st.metric(label=member, value=f"{balance:,.0f} 円")
 
-    st.markdown("---") # 区切り線
-
-    # --- 精算処理 ---
+    st.markdown("---")
     st.subheader("💸 精算タイム！")
-
-    # 貸している人（プラス）と借りている人（マイナス）に分ける
     creditors = {name: balance for name, balance in balances.items() if balance > 0}
     debtors = {name: balance for name, balance in balances.items() if balance < 0}
-
     transactions = []
-    
-    # 精算アルゴリズム
     while creditors and debtors:
-        # 貸している額が最も大きい人と、借りている額が最も大きい人を見つける
         creditor_name, creditor_amount = max(creditors.items(), key=lambda item: item[1])
         debtor_name, debtor_amount = min(debtors.items(), key=lambda item: item[1])
-
-        # 送金額を決定（貸し額と借り額の小さい方）
         transfer_amount = min(creditor_amount, -debtor_amount)
-
-        # 取引を記録
         transactions.append(f"**{debtor_name}** → **{creditor_name}** に **{transfer_amount:,.0f} 円** 支払う")
-
-        # 残高を更新
         creditors[creditor_name] -= transfer_amount
         debtors[debtor_name] += transfer_amount
-
-        # 残高が0になったらリストから削除
-        if creditors[creditor_name] < 1: # 浮動小数点数の誤差を考慮
-            del creditors[creditor_name]
-        if debtors[debtor_name] > -1:
-            del debtors[debtor_name]
+        if creditors[creditor_name] < 1: del creditors[creditor_name]
+        if debtors[debtor_name] > -1: del debtors[debtor_name]
 
     if transactions:
-        for t in transactions:
-            st.info(t)
+        for t in transactions: st.info(t)
     else:
         st.success("🎉 精算は完了しています！")
-
 else:
     st.info("未返済のデータがありません。")
 
-# --- ▲▲▲ ここまでが集計機能 ---
+st.markdown("---")
+
+# --- ▼▼▼【新機能】返済管理セクション ▼▼▼ ---
+st.subheader("✅ 返済管理")
+
+df_unpaid_management = df[df["状態"] == "未返済"].copy()
+
+if df_unpaid_management.empty:
+    st.success("素晴らしい！未返済の項目はありません。")
+else:
+    try:
+        header = sheet.row_values(1)
+        status_col_index = header.index("状態") + 1
+    except (ValueError, gspread.exceptions.APIError):
+        st.error("スプレッドシートのヘッダーから「状態」列を見つけられませんでした。")
+        status_col_index = None
+
+    if status_col_index:
+        st.write("↓のリストから完了した取引を「返済済み」に変更できます。")
+        
+        # リストのヘッダーを表示
+        col1, col2, col3, col4, col5 = st.columns([1.5, 1.5, 1, 2.5, 1.5])
+        col1.write("**借りた人**")
+        col2.write("**貸した人**")
+        col3.write("**金額**")
+        col4.write("**内容**")
+        col5.write("**アクション**")
+
+        # 未返済の項目を一行ずつ表示
+        for index, row in df_unpaid_management.iterrows():
+            col1, col2, col3, col4, col5 = st.columns([1.5, 1.5, 1, 2.5, 1.5])
+            col1.text(row['借りた人'])
+            col2.text(row['貸した人'])
+            col3.text(f"{row['金額（円）']:,}円")
+            # 「内容」列がなくてもエラーにならないように .get() を使用
+            col4.text(row.get('内容', 'ー')) 
+            
+            # 「返済完了」ボタン
+            if col5.button("返済完了にする", key=f"repay_{index}"):
+                # gspreadの行は1から始まる & ヘッダーがあるので+2する
+                sheet.update_cell(index + 2, status_col_index, "返済済み")
+                st.toast(f"取引を「返済済み」に更新しました！ページが再読み込みされます。")
+                st.rerun() # ページを再読み込みして表示を更新
+
+st.markdown("---")
 
 
-st.markdown("---") # 区切り線
-
-# 新規登録フォーム
+# --- ▼▼▼【機能修正】新規登録フォーム ▼▼▼ ---
 st.subheader("✍️ 新しい貸し借りを登録")
-col1, col2, col3 = st.columns(3)
-with col1:
-    borrower = st.selectbox("借りた人", members)
-with col2:
-    lender = st.selectbox("貸した人", members)
-with col3:
-    amount = st.number_input("金額（円）", min_value=0, step=100)
-    
-if st.button("登録"):
-    if borrower != lender and amount > 0:
-        # 日時と状態をリストに追加
-        new_row = [borrower, lender, int(amount), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "未返済"]
-        sheet.append_row(new_row, value_input_option='USER_ENTERED')
-        st.success("登録しました！ ページを再読み込みすると反映されます。")
-        st.balloons()
-    elif borrower == lender:
-        st.warning("😅 貸した人と借りた人は違う人を選んでください。")
-    else:
-        st.warning("💰 金額を入力してください。")
+with st.form("new_transaction_form", clear_on_submit=True):
+    col1, col2 = st.columns(2)
+    with col1:
+        borrower = st.selectbox("借りた人", members, key="borrower")
+        lender = st.selectbox("貸した人", members, key="lender")
+    with col2:
+        amount = st.number_input("金額（円）", min_value=0, step=100)
+        # 「内容」の入力欄を追加
+        memo = st.text_input("内容（例：ランチ代、交通費など）")
+
+    submitted = st.form_submit_button("登録する")
+    if submitted:
+        if borrower != lender and amount > 0:
+            # 登録データに「内容」を追加
+            new_row = [borrower, lender, int(amount), memo, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "未返済"]
+            sheet.append_row(new_row, value_input_option='USER_ENTERED')
+            st.success("登録しました！")
+            st.balloons()
+        elif borrower == lender:
+            st.warning("😅 貸した人と借りた人は違う人を選んでください。")
+        else:
+            st.warning("💰 金額を入力してください。")
