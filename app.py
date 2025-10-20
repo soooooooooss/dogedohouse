@@ -44,9 +44,9 @@ for col in required_cols:
 
 # 金額を数値に変換
 df["金額（円）"] = pd.to_numeric(df["金額（円）"], errors='coerce').fillna(0)
+members = ["よしい", "しゅんき", "のがみ", "そう"] # メンバーリストをここで定義
 
-
-# --- ▼▼▼【変更点】チェックボックスのラベルに色を付けるためのCSS（修正版） ▼▼▼ ---
+# --- チェックボックスのラベルに色を付けるためのCSS ---
 st.markdown("""
 <style>
 /* チェックボックスのラベル全体を太字に */
@@ -63,140 +63,41 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
-# --- ▲▲▲ 変更点ここまで ▲▲▲ ---
 
 
 # --- Streamlit アプリのUI部分 ---
 st.title("ど外道の会-ワリカ")
 st.write("💰金返せ")
 
-st.subheader("📝 貸し借り履歴")
-st.dataframe(df, hide_index=True)
 
-# --- 集計結果（既存の機能）---
-st.subheader("📊 集計結果")
-df_unpaid = df[df["状態"] == "未返済"].copy()
-members = ["よしい", "しゅんき", "のがみ", "そう"]
-balances = {member: 0 for member in members}
-
-if not df_unpaid.empty:
-    for index, row in df_unpaid.iterrows():
-        lender = row["貸した人"]
-        borrower = row["借りた人"]
-        amount = row["金額（円）"]
-        if lender in balances:
-            balances[lender] += amount
-        if borrower in balances:
-            balances[borrower] -= amount
-
-    cols = st.columns(len(members))
-    for i, (member, balance) in enumerate(balances.items()):
-        with cols[i]:
-            st.metric(label=member, value=f"{balance:,.0f} 円")
-
-    st.markdown("---")
-    st.subheader("💸 精算")
-    creditors = {name: balance for name, balance in balances.items() if balance > 0}
-    debtors = {name: balance for name, balance in balances.items() if balance < 0}
-    transactions = []
-    while creditors and debtors:
-        creditor_name, creditor_amount = max(creditors.items(), key=lambda item: item[1])
-        debtor_name, debtor_amount = min(debtors.items(), key=lambda item: item[1])
-        transfer_amount = min(creditor_amount, -debtor_amount)
-        transactions.append(f"**{debtor_name}** → **{creditor_name}** に **{transfer_amount:,.0f} 円** 支払う")
-        creditors[creditor_name] -= transfer_amount
-        debtors[debtor_name] += transfer_amount
-        if creditors[creditor_name] < 1: del creditors[creditor_name]
-        if debtors[debtor_name] > -1: del debtors[debtor_name]
-
-    if transactions:
-        for t in transactions: st.info(t)
-    else:
-        st.success("🎉 精算完了！")
-else:
-    st.info("未返済のデータがありません。")
-
-st.markdown("---")
-
-# --- ▼▼▼【新機能】返済管理セクション ▼▼▼ ---
-st.subheader("✅ 返済管理")
-
-df_unpaid_management = df[df["状態"] == "未返済"].copy()
-
-if df_unpaid_management.empty:
-    st.success("未返済の項目はありません。")
-else:
-    try:
-        header = sheet.row_values(1)
-        status_col_index = header.index("状態") + 1
-    except (ValueError, gspread.exceptions.APIError):
-        st.error("スプレッドシートのヘッダーから「状態」列を見つけられませんでした。")
-        status_col_index = None
-
-    if status_col_index:
-        st.write("早く返済して「返済完了」を押してください")
-
-        # 未返済の項目を一行ずつ表示
-        for index, row in df_unpaid_management.iterrows():
-            # 各データは裏側で取得
-            borrower = row['借りた人']
-            lender = row['貸した人']
-            amount = int(row['金額（円）'])
-            memo = row.get('内容', '')
-
-            # Markdownを使って色付きの表示テキストを生成
-            borrower_colored = f"<span style='color: #F63366;'><b>{borrower}</b></span>" # 赤色
-            lender_colored = f"<span style='color: #0068C9;'><b>{lender}</b></span>"   # 青色
-
-            display_text_md = f"{borrower_colored} が {lender_colored} に **{amount:,}円** 払う"
-            if memo:
-                display_text_md += f" <span style='font-size: 0.9em; opacity: 0.7;'>({memo})</span>" # 内容は少し小さく表示
-
-            # UIのレイアウトを2つのカラムに
-            col_details, col_action = st.columns([4, 1.5])
-
-            with col_details:
-                # st.text() の代わりに st.markdown() を使用
-                st.markdown(display_text_md, unsafe_allow_html=True)
-
-            with col_action:
-                # ボタンを配置
-                if st.button("返済完了", key=f"repay_{index}"):
-                    sheet.update_cell(index + 2, status_col_index, "返済済み")
-                    st.toast(f"取引を「返済済み」に更新しました！")
-                    st.rerun()
-
-st.markdown("---")
-
-
-# --- ▼▼▼【機能修正】新規登録フォーム（チェックボックスUIに変更） ▼▼▼ ---
+# --- ▼▼▼ 1. 貸し借り登録 ▼▼▼ ---
 st.subheader("✍️ 貸し借り登録")
+st.write("複数人が立て替えた場合や、割り勘の場合に使えます。")
 
 with st.form("new_transaction_form", clear_on_submit=True):
-    
     # --- 支払った人（貸した人）の選択 ---
     st.markdown("<span style='color: #0068C9;'>**支払った人**</span>", unsafe_allow_html=True)
-    st.markdown("<div class='lender-section'>", unsafe_allow_html=True) # CSSを適用するための目印
+    st.markdown("<div class='lender-section'>", unsafe_allow_html=True)
     lender_cols = st.columns(len(members))
     lenders = []
     for i, member in enumerate(members):
         with lender_cols[i]:
             if st.checkbox(member, key=f"lender_{member}"):
                 lenders.append(member)
-    st.markdown("</div>", unsafe_allow_html=True) # 目印の終わり
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # --- 支払い対象者（借りた人）の選択 ---
     st.markdown("<span style='color: #F63366;'>**支払い対象者**</span>", unsafe_allow_html=True)
-    st.markdown("<div class='participant-section'>", unsafe_allow_html=True) # CSSを適用するための目印
+    st.markdown("<div class='participant-section'>", unsafe_allow_html=True)
     participant_cols = st.columns(len(members))
     participants = []
     for i, member in enumerate(members):
         with participant_cols[i]:
             if st.checkbox(member, key=f"participant_{member}"):
                 participants.append(member)
-    st.markdown("</div>", unsafe_allow_html=True) # 目印の終わり
+    st.markdown("</div>", unsafe_allow_html=True)
     
-    st.markdown("---") # 見た目の区切り線
+    st.markdown("---")
 
     # --- 金額と内容の入力 ---
     col1, col2 = st.columns(2)
@@ -208,7 +109,6 @@ with st.form("new_transaction_form", clear_on_submit=True):
     # --- 登録ボタン ---
     submitted = st.form_submit_button("登録する")
     if submitted:
-        # バリデーション
         if not lenders:
             st.warning("支払った人を1人以上選択してください。")
         elif not participants:
@@ -216,7 +116,6 @@ with st.form("new_transaction_form", clear_on_submit=True):
         elif total_amount <= 0:
             st.warning("💰 金額を1円以上入力してください。")
         else:
-            # 割り勘計算ロジック
             balances = {member: 0 for member in members}
             num_lenders = len(lenders)
             base_payment = total_amount // num_lenders
@@ -236,27 +135,125 @@ with st.form("new_transaction_form", clear_on_submit=True):
                 balances[participant] -= share
             creditors = {name: balance for name, balance in balances.items() if balance > 0}
             debtors = {name: balance for name, balance in balances.items() if balance < 0}
-            
             new_rows = []
             while creditors and debtors:
                 creditor_name, creditor_amount = max(creditors.items(), key=lambda item: item[1])
                 debtor_name, debtor_amount = min(debtors.items(), key=lambda item: item[1])
                 transfer_amount = min(creditor_amount, -debtor_amount)
                 if transfer_amount >= 1:
-                    new_row = [
+                    new_rows.append([
                         debtor_name, creditor_name, transfer_amount, memo,
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "未返済"
-                    ]
-                    new_rows.append(new_row)
+                    ])
                 creditors[creditor_name] -= transfer_amount
                 debtors[debtor_name] += transfer_amount
                 if creditors[creditor_name] < 1: del creditors[creditor_name]
                 if debtors[debtor_name] > -1: del debtors[debtor_name]
-
-            # スプレッドシートへの書き込み
             if new_rows:
                 sheet.append_rows(new_rows, value_input_option='USER_ENTERED')
                 st.success(f"{len(new_rows)}件の貸し借りデータを登録しました！")
                 st.balloons()
             else:
                 st.info("貸し借りは発生しませんでした。")
+
+st.markdown("---")
+
+
+# --- ▼▼▼ 2. 精算 ▼▼▼ ---
+st.subheader("💸 精算")
+df_unpaid = df[df["状態"] == "未返済"].copy()
+if not df_unpaid.empty:
+    balances = {member: 0 for member in members}
+    for index, row in df_unpaid.iterrows():
+        lender = row["貸した人"]
+        borrower = row["借りた人"]
+        amount = row["金額（円）"]
+        if lender in balances:
+            balances[lender] += amount
+        if borrower in balances:
+            balances[borrower] -= amount
+    
+    creditors = {name: balance for name, balance in balances.items() if balance > 0}
+    debtors = {name: balance for name, balance in balances.items() if balance < 0}
+    transactions = []
+    while creditors and debtors:
+        creditor_name, creditor_amount = max(creditors.items(), key=lambda item: item[1])
+        debtor_name, debtor_amount = min(debtors.items(), key=lambda item: item[1])
+        transfer_amount = min(creditor_amount, -debtor_amount)
+        transactions.append(f"**{debtor_name}** → **{creditor_name}** に **{transfer_amount:,.0f} 円** 支払う")
+        creditors[creditor_name] -= transfer_amount
+        debtors[debtor_name] += transfer_amount
+        if creditors[creditor_name] < 1: del creditors[creditor_name]
+        if debtors[debtor_name] > -1: del debtors[debtor_name]
+
+    if transactions:
+        for t in transactions: st.info(t)
+    else:
+        st.success("🎉 精算完了！")
+else:
+    st.info("精算の必要な項目はありません。")
+
+st.markdown("---")
+
+
+# --- ▼▼▼ 3. 返済管理 ▼▼▼ ---
+st.subheader("✅ 返済管理")
+df_unpaid_management = df[df["状態"] == "未返済"].copy()
+
+if df_unpaid_management.empty:
+    st.success("未返済の項目はありません。")
+else:
+    try:
+        header = sheet.row_values(1)
+        status_col_index = header.index("状態") + 1
+    except (ValueError, gspread.exceptions.APIError):
+        st.error("スプレッドシートのヘッダーから「状態」列を見つけられませんでした。")
+        status_col_index = None
+
+    if status_col_index:
+        for index, row in df_unpaid_management.iterrows():
+            borrower = row['借りた人']
+            lender = row['貸した人']
+            amount = int(row['金額（円）'])
+            memo = row.get('内容', '')
+            borrower_colored = f"<span style='color: #F63366;'><b>{borrower}</b></span>"
+            lender_colored = f"<span style='color: #0068C9;'><b>{lender}</b></span>"
+            display_text_md = f"{borrower_colored} が {lender_colored} に **{amount:,}円** 払う"
+            if memo:
+                display_text_md += f" <span style='font-size: 0.9em; opacity: 0.7;'>({memo})</span>"
+            col_details, col_action = st.columns([4, 1.5])
+            with col_details:
+                st.markdown(display_text_md, unsafe_allow_html=True)
+            with col_action:
+                if st.button("返済完了", key=f"repay_{index}"):
+                    sheet.update_cell(index + 2, status_col_index, "返済済み")
+                    st.toast(f"取引を「返済済み」に更新しました！")
+                    st.rerun()
+
+st.markdown("---")
+
+
+# --- ▼▼▼ 4. 貸し借り履歴 ▼▼▼ ---
+st.subheader("📝 貸し借り履歴")
+st.dataframe(df, hide_index=True)
+
+
+# --- ▼▼▼ 5. 集計結果 ▼▼▼ ---
+st.subheader("📊 集計結果")
+if not df_unpaid.empty:
+    balances = {member: 0 for member in members}
+    for index, row in df_unpaid.iterrows():
+        lender = row["貸した人"]
+        borrower = row["借りた人"]
+        amount = row["金額（円）"]
+        if lender in balances:
+            balances[lender] += amount
+        if borrower in balances:
+            balances[borrower] -= amount
+            
+    cols = st.columns(len(members))
+    for i, (member, balance) in enumerate(balances.items()):
+        with cols[i]:
+            st.metric(label=member, value=f"{balance:,.0f} 円")
+else:
+    st.info("未返済のデータがありません。")
