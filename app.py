@@ -68,7 +68,7 @@ if not df_unpaid.empty:
             balances[lender] += amount
         if borrower in balances:
             balances[borrower] -= amount
-    
+
     cols = st.columns(len(members))
     for i, (member, balance) in enumerate(balances.items()):
         with cols[i]:
@@ -115,7 +115,7 @@ else:
 
     if status_col_index:
         st.write("↓のリストから完了した取引を「返済済み」に変更できます。")
-        
+
         # 未返済の項目を一行ずつ表示
         for index, row in df_unpaid_management.iterrows():
             # 各データは裏側で取得
@@ -127,18 +127,18 @@ else:
             # Markdownを使って色付きの表示テキストを生成
             borrower_colored = f"<span style='color: #F63366;'><b>{borrower}</b></span>" # 赤色
             lender_colored = f"<span style='color: #0068C9;'><b>{lender}</b></span>"   # 青色
-            
+
             display_text_md = f"{borrower_colored} が {lender_colored} に **{amount:,}円** 払う"
             if memo:
                 display_text_md += f" <span style='font-size: 0.9em; opacity: 0.7;'>({memo})</span>" # 内容は少し小さく表示
 
             # UIのレイアウトを2つのカラムに
             col_details, col_action = st.columns([4, 1.5])
-            
+
             with col_details:
                 # st.text() の代わりに st.markdown() を使用
                 st.markdown(display_text_md, unsafe_allow_html=True)
-                
+
             with col_action:
                 # ボタンを配置
                 if st.button("返済完了", key=f"repay_{index}"):
@@ -151,31 +151,22 @@ st.markdown("---")
 
 # --- ▼▼▼【機能修正】新規登録フォーム（チェックボックス対応） ▼▼▼ ---
 st.subheader("✍️ 貸し借り登録")
-st.write("複数人が立て替えた場合や、割り勘の場合に使えます。")
 
 # session_stateが初期化されていなければ初期化
 if 'transactions_to_add' not in st.session_state:
     st.session_state.transactions_to_add = []
 
 # --- 入力フォーム ---
-# ▼▼▼【変更点】ラベルをst.markdownで色付け ▼▼▼
-st.markdown("<span style='color: #0068C9;'>**支払った人**</span>", unsafe_allow_html=True)
 lenders = st.multiselect(
-    " ", # ラベルはmarkdownで表示するのでここは空にする
+    "支払った人",
     members,
-    key="lenders",
-    label_visibility="collapsed" # デフォルトのラベルを非表示に
+    key="lenders"
 )
-
-st.markdown("<span style='color: #F63366;'>**支払い対象者**</span>", unsafe_allow_html=True)
 participants = st.multiselect(
-    " ", # ラベルはmarkdownで表示するのでここは空にする
+    "支払い対象者",
     members,
-    key="participants",
-    label_visibility="collapsed" # デフォルトのラベルを非表示に
+    key="participants"
 )
-# ▲▲▲【変更点】ここまで ▲▲▲
-
 col1, col2 = st.columns(2)
 with col1:
     total_amount = st.number_input("合計金額（円）", min_value=0, step=100)
@@ -183,7 +174,7 @@ with col2:
     memo = st.text_input("内容（任意）")
 
 # --- 計算ボタン ---
-if st.button("① 貸し借りを計算する"):
+if st.button("登録する"):
     # バリデーション
     if not lenders:
         st.warning("支払った人を1人以上選択してください。")
@@ -192,7 +183,7 @@ if st.button("① 貸し借りを計算する"):
     elif total_amount <= 0:
         st.warning("💰 金額を1円以上入力してください。")
     else:
-        # --- 割り勘計算ロジック ---
+        # --- 割り勘計算ロジック（切り上げ対応） ---
         balances = {member: 0 for member in members}
         num_lenders = len(lenders)
         base_payment = total_amount // num_lenders
@@ -203,59 +194,4 @@ if st.button("① 貸し借りを計算する"):
                 payment += 1
             balances[lender] += payment
         num_participants = len(participants)
-        base_share = total_amount // num_participants
-        remainder_share = total_amount % num_participants
-        for i, participant in enumerate(participants):
-            share = base_share
-            if i < remainder_share:
-                share += 1
-            balances[participant] -= share
-        creditors = {name: balance for name, balance in balances.items() if balance > 0}
-        debtors = {name: balance for name, balance in balances.items() if balance < 0}
-        
-        calculated_rows = []
-        while creditors and debtors:
-            creditor_name, creditor_amount = max(creditors.items(), key=lambda item: item[1])
-            debtor_name, debtor_amount = min(debtors.items(), key=lambda item: item[1])
-            transfer_amount = min(creditor_amount, -debtor_amount)
-            if transfer_amount >= 1:
-                new_row = [
-                    debtor_name, creditor_name, transfer_amount, memo,
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "未返済"
-                ]
-                calculated_rows.append(new_row)
-            creditors[creditor_name] -= transfer_amount
-            debtors[debtor_name] += transfer_amount
-            if creditors[creditor_name] < 1: del creditors[creditor_name]
-            if debtors[debtor_name] > -1: del debtors[debtor_name]
-        
-        st.session_state.transactions_to_add = calculated_rows
-        if not calculated_rows:
-            st.info("貸し借りは発生しませんでした。")
-
-# --- チェックボックスでの登録 ---
-if st.session_state.transactions_to_add:
-    st.markdown("---")
-    st.write("登録したい項目にチェックを入れてください。")
-    
-    selected_transactions = []
-    
-    for i, transaction in enumerate(st.session_state.transactions_to_add):
-        borrower, lender, amount, memo_text, _, _ = transaction
-        
-        label = f"{borrower} → {lender} に {amount:,}円"
-        if memo_text:
-            label += f" ({memo_text})"
-        
-        if st.checkbox(label, key=f"check_{i}", value=True):
-             selected_transactions.append(transaction)
-
-    if st.button("② チェックした項目を登録する"):
-        if selected_transactions:
-            sheet.append_rows(selected_transactions, value_input_option='USER_ENTERED')
-            st.success(f"{len(selected_transactions)}件の貸し借りデータを登録しました！")
-            st.balloons()
-            st.session_state.transactions_to_add = []
-            st.rerun()
-        else:
-            st.warning("登録する項目が選択されていません。")
+        base_share = total_amount
