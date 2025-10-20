@@ -147,27 +147,58 @@ for index, row in df_unpaid_management.iterrows():
 st.markdown("---")
 
 
-# --- ▼▼▼【機能修正】新規登録フォーム ▼▼▼ ---
+# --- ▼▼▼【機能修正】新規登録フォーム（割り勘対応） ▼▼▼ ---
 st.subheader("✍️ 貸し借り登録")
+st.write("1人が複数人の分を立て替えた場合（割り勘）に使います。")
+
 with st.form("new_transaction_form", clear_on_submit=True):
+    # 支払った人（貸した人）は1人
+    lender = st.selectbox("支払った人（貸した人）", members, key="lender")
+    
+    # 参加者（借りた人）は複数選択可能
+    participants = st.multiselect(
+        "参加者（借りた人）", 
+        members, 
+        default=members, # デフォルトで全員を選択状態にする
+        key="participants"
+    )
+    
     col1, col2 = st.columns(2)
     with col1:
-        borrower = st.selectbox("借りた人", members, key="borrower")
-        lender = st.selectbox("貸した人", members, key="lender")
+        total_amount = st.number_input("合計金額（円）", min_value=0, step=100)
     with col2:
-        amount = st.number_input("金額（円）", min_value=0, step=100)
-        # 「内容」の入力欄を追加
-        memo = st.text_input("内容 (任意)")
+        memo = st.text_input("内容（例：ランチ代）")
 
     submitted = st.form_submit_button("登録する")
     if submitted:
-        if borrower != lender and amount > 0:
-            # 登録データに「内容」を追加
-            new_row = [borrower, lender, int(amount), memo, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "未返済"]
-            sheet.append_row(new_row, value_input_option='USER_ENTERED')
-            st.success("登録しました！")
-            st.balloons()
-        elif borrower == lender:
-            st.warning("😅 貸した人と借りた人は違う人を選んでください。")
+        # 実際に借りたのは、参加者から支払った人を除いたメンバー
+        borrowers = [p for p in participants if p != lender]
+        
+        # バリデーション（入力チェック）
+        if not borrowers:
+            st.warning("😅 支払った人以外の参加者を1人以上選択してください。")
+        elif total_amount <= 0:
+            st.warning("💰 金額を1円以上入力してください。")
         else:
-            st.warning("💰 金額を入力してください。")
+            # 割り勘金額を計算
+            num_participants = len(participants)
+            split_amount = round(total_amount / num_participants)
+            
+            # 登録するデータのリストを作成
+            new_rows = []
+            for borrower in borrowers:
+                new_row = [
+                    borrower, 
+                    lender, 
+                    int(split_amount), 
+                    memo, 
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                    "未返済"
+                ]
+                new_rows.append(new_row)
+
+            # スプレッドシートに複数行を一度に追加
+            if new_rows:
+                sheet.append_rows(new_rows, value_input_option='USER_ENTERED')
+                st.success(f"{len(borrowers)}人分の割り勘を登録しました！ (1人あたり {split_amount:,}円)")
+                st.balloons()
