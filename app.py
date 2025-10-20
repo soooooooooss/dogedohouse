@@ -43,11 +43,11 @@ for col in required_cols:
         st.stop()
 
 # 金額を数値に変換
-df["金額（円）"] = pd.to_numeric(df["金額（円）"], errors='coerce')
+df["金額（円）"] = pd.to_numeric(df["金額（円）"], errors='coerce').fillna(0)
 
 
 # --- Streamlit アプリのUI部分 ---
-st.title("ど外道の会")
+st.title("ど外道の会-ワリカ")
 st.write("💰金返せ")
 
 st.subheader("📝 貸し借り履歴")
@@ -61,8 +61,13 @@ balances = {member: 0 for member in members}
 
 if not df_unpaid.empty:
     for index, row in df_unpaid.iterrows():
-        balances[row["貸した人"]] += row["金額（円）"]
-        balances[row["借りた人"]] -= row["金額（円）"]
+        lender = row["貸した人"]
+        borrower = row["借りた人"]
+        amount = row["金額（円）"]
+        if lender in balances:
+            balances[lender] += amount
+        if borrower in balances:
+            balances[borrower] -= amount
     
     cols = st.columns(len(members))
     for i, (member, balance) in enumerate(balances.items()):
@@ -111,55 +116,55 @@ else:
     if status_col_index:
         st.write("↓のリストから完了した取引を「返済済み」に変更できます。")
         
+        # 未返済の項目を一行ずつ表示
+        for index, row in df_unpaid_management.iterrows():
+            # 各データは裏側で取得
+            borrower = row['借りた人']
+            lender = row['貸した人']
+            amount = int(row['金額（円）'])
+            memo = row.get('内容', '')
 
-# ヘッダー表示の行は削除します
+            # Markdownを使って色付きの表示テキストを生成
+            borrower_colored = f"<span style='color: #F63366;'><b>{borrower}</b></span>" # 赤色
+            lender_colored = f"<span style='color: #0068C9;'><b>{lender}</b></span>"   # 青色
+            
+            display_text_md = f"{borrower_colored} が {lender_colored} に **{amount:,}円** 払う"
+            if memo:
+                display_text_md += f" <span style='font-size: 0.9em; opacity: 0.7;'>({memo})</span>" # 内容は少し小さく表示
 
-# 未返済の項目を一行ずつ表示
-for index, row in df_unpaid_management.iterrows():
-    # 各データは裏側で取得
-    borrower = row['借りた人']
-    lender = row['貸した人']
-    amount = int(row['金額（円）'])
-    memo = row.get('内容', '')
-
-    # Markdownを使って色付きの表示テキストを生成
-    borrower_colored = f"<span style='color: #F63366;'><b>{borrower}</b></span>" # 赤色
-    lender_colored = f"<span style='color: #0068C9;'><b>{lender}</b></span>"   # 青色
-    
-    display_text_md = f"{borrower_colored} が {lender_colored} に **{amount:,}円** 払う"
-    if memo:
-        display_text_md += f" <span style='font-size: 0.9em; opacity: 0.7;'>({memo})</span>" # 内容は少し小さく表示
-
-    # UIのレイアウトを2つのカラムに
-    col_details, col_action = st.columns([4, 1.5])
-    
-    with col_details:
-        # st.text() の代わりに st.markdown() を使用
-        st.markdown(display_text_md, unsafe_allow_html=True)
-        
-    with col_action:
-        # ボタンを配置
-        if st.button("返済完了", key=f"repay_{index}"):
-            sheet.update_cell(index + 2, status_col_index, "返済済み")
-            st.toast(f"取引を「返済済み」に更新しました！")
-            st.rerun()
+            # UIのレイアウトを2つのカラムに
+            col_details, col_action = st.columns([4, 1.5])
+            
+            with col_details:
+                # st.text() の代わりに st.markdown() を使用
+                st.markdown(display_text_md, unsafe_allow_html=True)
+                
+            with col_action:
+                # ボタンを配置
+                if st.button("返済完了", key=f"repay_{index}"):
+                    sheet.update_cell(index + 2, status_col_index, "返済済み")
+                    st.toast(f"取引を「返済済み」に更新しました！")
+                    st.rerun()
 
 st.markdown("---")
 
 
-# --- ▼▼▼【機能修正】新規登録フォーム（割り勘対応） ▼▼▼ ---
+# --- ▼▼▼【機能修正】新規登録フォーム（複数支払い・割り勘対応） ▼▼▼ ---
 st.subheader("✍️ 貸し借り登録")
-st.write("1人が複数人の分を立て替えた場合（割り勘）に使います。")
+st.write("複数人が立て替えた場合や、割り勘の場合に使えます。")
 
 with st.form("new_transaction_form", clear_on_submit=True):
-    # 支払った人（貸した人）は1人
-    lender = st.selectbox("支払った人（貸した人）", members, key="lender")
+    # 支払った人（貸した人）も複数選択可能に変更
+    lenders = st.multiselect(
+        "支払った人",
+        members,
+        key="lenders"
+    )
     
-    # 参加者（借りた人）は複数選択可能
+    # 参加者（お金を借りた側を含む）も複数選択可能
     participants = st.multiselect(
-        "参加者（借りた人）", 
+        "支払い対象者", 
         members, 
-        default=members, # デフォルトで全員を選択状態にする
         key="participants"
     )
     
@@ -167,38 +172,78 @@ with st.form("new_transaction_form", clear_on_submit=True):
     with col1:
         total_amount = st.number_input("合計金額（円）", min_value=0, step=100)
     with col2:
-        memo = st.text_input("内容（例：ランチ代）")
+        memo = st.text_input("内容（任意）")
 
     submitted = st.form_submit_button("登録する")
     if submitted:
-        # 実際に借りたのは、参加者から支払った人を除いたメンバー
-        borrowers = [p for p in participants if p != lender]
-        
-        # バリデーション（入力チェック）
-        if not borrowers:
-            st.warning("😅 支払った人以外の参加者を1人以上選択してください。")
+        # --- バリデーション（入力チェック） ---
+        if not lenders:
+            st.warning("支払った人を1人以上選択してください。")
+        elif not participants:
+            st.warning("対象者を1人以上選択してください。")
         elif total_amount <= 0:
             st.warning("💰 金額を1円以上入力してください。")
         else:
-            # 割り勘金額を計算
-            num_participants = len(participants)
-            split_amount = round(total_amount / num_participants)
+            # --- 複雑な割り勘を個別の貸し借りに分解する計算ロジック (切り上げ対応) ---
             
-            # 登録するデータのリストを作成
-            new_rows = []
-            for borrower in borrowers:
-                new_row = [
-                    borrower, 
-                    lender, 
-                    int(split_amount), 
-                    memo, 
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                    "未返済"
-                ]
-                new_rows.append(new_row)
+            # 1. 各メンバーのこの取引における収支を計算
+            balances = {member: 0 for member in members}
+            
+            # 支払った金額を加算（支払者で均等割りし、余りは先頭から分配）
+            num_lenders = len(lenders)
+            base_payment = total_amount // num_lenders
+            remainder_payment = total_amount % num_lenders
+            
+            for i, lender in enumerate(lenders):
+                payment = base_payment
+                if i < remainder_payment: # 先頭の 'remainder' 人が1円多く支払ったと見なす
+                    payment += 1
+                balances[lender] += payment
+                
+            # 負担すべき金額を減算（参加者で均等割りし、余りは先頭から分配）
+            num_participants = len(participants)
+            base_share = total_amount // num_participants
+            remainder_share = total_amount % num_participants
+            
+            for i, participant in enumerate(participants):
+                share = base_share
+                if i < remainder_share: # 先頭の 'remainder' 人が1円多く負担する
+                    share += 1
+                balances[participant] -= share
 
-            # スプレッドシートに複数行を一度に追加
+            # 2. 収支から貸した人（プラス）と借りた人（マイナス）を特定
+            creditors = {name: balance for name, balance in balances.items() if balance > 0}
+            debtors = {name: balance for name, balance in balances.items() if balance < 0}
+            
+            # 3. 借りた人から貸した人への支払い記録（new_rows）を作成
+            new_rows = []
+            
+            while creditors and debtors:
+                creditor_name, creditor_amount = max(creditors.items(), key=lambda item: item[1])
+                debtor_name, debtor_amount = min(debtors.items(), key=lambda item: item[1])
+                transfer_amount = min(creditor_amount, -debtor_amount)
+                
+                if transfer_amount >= 1:
+                    new_row = [
+                        debtor_name,
+                        creditor_name,
+                        transfer_amount,
+                        memo,
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                        "未返済"
+                    ]
+                    new_rows.append(new_row)
+
+                creditors[creditor_name] -= transfer_amount
+                debtors[debtor_name] += transfer_amount
+
+                if creditors[creditor_name] < 1: del creditors[creditor_name]
+                if debtors[debtor_name] > -1: del debtors[debtor_name]
+
+            # 4. スプレッドシートに書き込み
             if new_rows:
                 sheet.append_rows(new_rows, value_input_option='USER_ENTERED')
-                st.success(f"{len(borrowers)}人分の割り勘を登録しました！ (1人あたり {split_amount:,}円)")
+                st.success(f"{len(new_rows)}件の貸し借りデータを登録しました！")
                 st.balloons()
+            else:
+                st.info("貸し借りは発生しませんでした。")
