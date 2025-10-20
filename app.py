@@ -47,11 +47,11 @@ df["金額（円）"] = pd.to_numeric(df["金額（円）"], errors='coerce')
 
 
 # --- Streamlit アプリのUI部分 ---
-st.title("🐶 dogedohouse")
-st.write("4人のお金の貸し借りをリアルタイムで管理！")
+st.title("ど外道の会")
+st.write("💰金返せ")
 
-st.subheader("📝 貸し借り全履歴")
-st.dataframe(df)
+st.subheader("📝 貸し借り履歴")
+st.dataframe(df, hide_index=True)
 
 # --- 集計結果（既存の機能）---
 st.subheader("📊 集計結果")
@@ -70,7 +70,7 @@ if not df_unpaid.empty:
             st.metric(label=member, value=f"{balance:,.0f} 円")
 
     st.markdown("---")
-    st.subheader("💸 精算タイム！")
+    st.subheader("💸 精算")
     creditors = {name: balance for name, balance in balances.items() if balance > 0}
     debtors = {name: balance for name, balance in balances.items() if balance < 0}
     transactions = []
@@ -87,7 +87,7 @@ if not df_unpaid.empty:
     if transactions:
         for t in transactions: st.info(t)
     else:
-        st.success("🎉 精算は完了しています！")
+        st.success("🎉 精算完了！")
 else:
     st.info("未返済のデータがありません。")
 
@@ -99,7 +99,7 @@ st.subheader("✅ 返済管理")
 df_unpaid_management = df[df["状態"] == "未返済"].copy()
 
 if df_unpaid_management.empty:
-    st.success("素晴らしい！未返済の項目はありません。")
+    st.success("未返済の項目はありません。")
 else:
     try:
         header = sheet.row_values(1)
@@ -139,7 +139,7 @@ st.markdown("---")
 
 
 # --- ▼▼▼【機能修正】新規登録フォーム ▼▼▼ ---
-st.subheader("✍️ 新しい貸し借りを登録")
+st.subheader("✍️ 借金登録")
 with st.form("new_transaction_form", clear_on_submit=True):
     col1, col2 = st.columns(2)
     with col1:
@@ -148,7 +148,7 @@ with st.form("new_transaction_form", clear_on_submit=True):
     with col2:
         amount = st.number_input("金額（円）", min_value=0, step=100)
         # 「内容」の入力欄を追加
-        memo = st.text_input("内容（例：ランチ代、交通費など）")
+        memo = st.text_input("内容 (任意)")
 
     submitted = st.form_submit_button("登録する")
     if submitted:
