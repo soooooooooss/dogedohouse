@@ -111,29 +111,37 @@ else:
     if status_col_index:
         st.write("↓のリストから完了した取引を「返済済み」に変更できます。")
         
-        # リストのヘッダーを表示
-        col1, col2, col3, col4, col5 = st.columns([1.5, 1.5, 1, 2.5, 1.5])
-        col1.write("**借りた人**")
-        col2.write("**貸した人**")
-        col3.write("**金額**")
-        col4.write("**内容**")
-        col5.write("**アクション**")
 
-        # 未返済の項目を一行ずつ表示
-        for index, row in df_unpaid_management.iterrows():
-            col1, col2, col3, col4, col5 = st.columns([1.5, 1.5, 1, 2.5, 1.5])
-            col1.text(row['借りた人'])
-            col2.text(row['貸した人'])
-            col3.text(f"{row['金額（円）']:,}円")
-            # 「内容」列がなくてもエラーにならないように .get() を使用
-            col4.text(row.get('内容', 'ー')) 
-            
-            # 「返済完了」ボタン
-            if col5.button("返済完了にする", key=f"repay_{index}"):
-                # gspreadの行は1から始まる & ヘッダーがあるので+2する
-                sheet.update_cell(index + 2, status_col_index, "返済済み")
-                st.toast(f"取引を「返済済み」に更新しました！ページが再読み込みされます。")
-                st.rerun() # ページを再読み込みして表示を更新
+        # リストのヘッダーを表示
+col_header_details, col_header_action = st.columns([4, 1.5]) # カラムを2つに変更
+col_header_details.write("**詳細**")
+col_header_action.write("**アクション**")
+
+# 未返済の項目を一行ずつ表示
+for index, row in df_unpaid_management.iterrows():
+    # 各データは裏側で取得するだけ
+    borrower = row['借りた人']
+    lender = row['貸した人']
+    amount = int(row['金額（円）'])
+    memo = row.get('内容', '')
+
+    # 表示する文章を作成
+    display_text = f"{borrower}が{lender}に{amount:,}円払う"
+    if memo:
+        display_text += f" ({memo})"
+    
+    # UIのレイアウトを2つのカラムに変更
+    col_details, col_action = st.columns([4, 1.5])
+    
+    with col_details:
+        st.text(display_text) # 1つ目のカラムに生成した文章を配置
+        
+    with col_action:
+        # 2つ目のカラムにボタンを配置
+        if st.button("返済完了にする", key=f"repay_{index}"):
+            sheet.update_cell(index + 2, status_col_index, "返済済み")
+            st.toast(f"取引を「返済済み」に更新しました！")
+            st.rerun()
 
 st.markdown("---")
 
