@@ -46,6 +46,24 @@ for col in required_cols:
 df["金額（円）"] = pd.to_numeric(df["金額（円）"], errors='coerce').fillna(0)
 
 
+# --- ▼▼▼【変更点】チェックボックスのラベルに色を付けるためのCSS ▼▼▼ ---
+st.markdown("""
+<style>
+/* 支払った人 (貸した人) のチェックボックスラベルを青色・太字に */
+.lender-section .stCheckbox label p {
+    color: #0068C9 !important;
+    font-weight: bold !important;
+}
+/* 支払い対象者 (借りた人) のチェックボックスラベルを赤色・太字に */
+.participant-section .stCheckbox label p {
+    color: #F63366 !important;
+    font-weight: bold !important;
+}
+</style>
+""", unsafe_allow_html=True)
+# --- ▲▲▲ 変更点ここまで ▲▲▲ ---
+
+
 # --- Streamlit アプリのUI部分 ---
 st.title("ど外道の会-ワリカ")
 st.write("💰金返せ")
@@ -156,21 +174,25 @@ with st.form("new_transaction_form", clear_on_submit=True):
     
     # --- 支払った人（貸した人）の選択 ---
     st.markdown("<span style='color: #0068C9;'>**支払った人**</span>", unsafe_allow_html=True)
+    st.markdown("<div class='lender-section'>", unsafe_allow_html=True) # CSSを適用するための目印
     lender_cols = st.columns(len(members))
     lenders = []
     for i, member in enumerate(members):
         with lender_cols[i]:
             if st.checkbox(member, key=f"lender_{member}"):
                 lenders.append(member)
+    st.markdown("</div>", unsafe_allow_html=True) # 目印の終わり
 
     # --- 支払い対象者（借りた人）の選択 ---
     st.markdown("<span style='color: #F63366;'>**支払い対象者**</span>", unsafe_allow_html=True)
+    st.markdown("<div class='participant-section'>", unsafe_allow_html=True) # CSSを適用するための目印
     participant_cols = st.columns(len(members))
     participants = []
     for i, member in enumerate(members):
         with participant_cols[i]:
             if st.checkbox(member, key=f"participant_{member}"):
                 participants.append(member)
+    st.markdown("</div>", unsafe_allow_html=True) # 目印の終わり
     
     st.markdown("---") # 見た目の区切り線
 
