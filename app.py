@@ -46,18 +46,20 @@ for col in required_cols:
 df["金額（円）"] = pd.to_numeric(df["金額（円）"], errors='coerce').fillna(0)
 
 
-# --- ▼▼▼【変更点】チェックボックスのラベルに色を付けるためのCSS ▼▼▼ ---
+# --- ▼▼▼【変更点】チェックボックスのラベルに色を付けるためのCSS（修正版） ▼▼▼ ---
 st.markdown("""
 <style>
-/* 支払った人 (貸した人) のチェックボックスラベルを青色・太字に */
-.lender-section .stCheckbox label p {
-    color: #0068C9 !important;
+/* チェックボックスのラベル全体を太字に */
+.stCheckbox > label {
     font-weight: bold !important;
 }
-/* 支払い対象者 (借りた人) のチェックボックスラベルを赤色・太字に */
-.participant-section .stCheckbox label p {
+/* 支払った人 (貸した人) のチェックボックスラベルを青色に */
+.lender-section .stCheckbox > label {
+    color: #0068C9 !important;
+}
+/* 支払い対象者 (借りた人) のチェックボックスラベルを赤色に */
+.participant-section .stCheckbox > label {
     color: #F63366 !important;
-    font-weight: bold !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -132,7 +134,7 @@ else:
         status_col_index = None
 
     if status_col_index:
-        st.write("↓のリストから完了した取引を「返済済み」に変更できます。")
+        st.write("早く返済して「返済完了」を押してください")
 
         # 未返済の項目を一行ずつ表示
         for index, row in df_unpaid_management.iterrows():
