@@ -149,101 +149,113 @@ else:
 st.markdown("---")
 
 
-# --- ▼▼▼【機能修正】新規登録フォーム（複数支払い・割り勘対応） ▼▼▼ ---
+# --- ▼▼▼【機能修正】新規登録フォーム（チェックボックス対応） ▼▼▼ ---
 st.subheader("✍️ 貸し借り登録")
 st.write("複数人が立て替えた場合や、割り勘の場合に使えます。")
 
-with st.form("new_transaction_form", clear_on_submit=True):
-    # 支払った人（貸した人）も複数選択可能に変更
-    lenders = st.multiselect(
-        "支払った人",
-        members,
-        key="lenders"
-    )
-    
-    # 参加者（お金を借りた側を含む）も複数選択可能
-    participants = st.multiselect(
-        "支払い対象者", 
-        members, 
-        key="participants"
-    )
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        total_amount = st.number_input("合計金額（円）", min_value=0, step=100)
-    with col2:
-        memo = st.text_input("内容（任意）")
+# session_stateが初期化されていなければ初期化
+if 'transactions_to_add' not in st.session_state:
+    st.session_state.transactions_to_add = []
 
-    submitted = st.form_submit_button("登録する")
-    if submitted:
-        # --- バリデーション（入力チェック） ---
-        if not lenders:
-            st.warning("支払った人を1人以上選択してください。")
-        elif not participants:
-            st.warning("対象者を1人以上選択してください。")
-        elif total_amount <= 0:
-            st.warning("💰 金額を1円以上入力してください。")
+# --- 入力フォーム ---
+# ▼▼▼【変更点】ラベルをst.markdownで色付け ▼▼▼
+st.markdown("<span style='color: #0068C9;'>**支払った人**</span>", unsafe_allow_html=True)
+lenders = st.multiselect(
+    " ", # ラベルはmarkdownで表示するのでここは空にする
+    members,
+    key="lenders",
+    label_visibility="collapsed" # デフォルトのラベルを非表示に
+)
+
+st.markdown("<span style='color: #F63366;'>**支払い対象者**</span>", unsafe_allow_html=True)
+participants = st.multiselect(
+    " ", # ラベルはmarkdownで表示するのでここは空にする
+    members,
+    key="participants",
+    label_visibility="collapsed" # デフォルトのラベルを非表示に
+)
+# ▲▲▲【変更点】ここまで ▲▲▲
+
+col1, col2 = st.columns(2)
+with col1:
+    total_amount = st.number_input("合計金額（円）", min_value=0, step=100)
+with col2:
+    memo = st.text_input("内容（任意）")
+
+# --- 計算ボタン ---
+if st.button("① 貸し借りを計算する"):
+    # バリデーション
+    if not lenders:
+        st.warning("支払った人を1人以上選択してください。")
+    elif not participants:
+        st.warning("対象者を1人以上選択してください。")
+    elif total_amount <= 0:
+        st.warning("💰 金額を1円以上入力してください。")
+    else:
+        # --- 割り勘計算ロジック ---
+        balances = {member: 0 for member in members}
+        num_lenders = len(lenders)
+        base_payment = total_amount // num_lenders
+        remainder_payment = total_amount % num_lenders
+        for i, lender in enumerate(lenders):
+            payment = base_payment
+            if i < remainder_payment:
+                payment += 1
+            balances[lender] += payment
+        num_participants = len(participants)
+        base_share = total_amount // num_participants
+        remainder_share = total_amount % num_participants
+        for i, participant in enumerate(participants):
+            share = base_share
+            if i < remainder_share:
+                share += 1
+            balances[participant] -= share
+        creditors = {name: balance for name, balance in balances.items() if balance > 0}
+        debtors = {name: balance for name, balance in balances.items() if balance < 0}
+        
+        calculated_rows = []
+        while creditors and debtors:
+            creditor_name, creditor_amount = max(creditors.items(), key=lambda item: item[1])
+            debtor_name, debtor_amount = min(debtors.items(), key=lambda item: item[1])
+            transfer_amount = min(creditor_amount, -debtor_amount)
+            if transfer_amount >= 1:
+                new_row = [
+                    debtor_name, creditor_name, transfer_amount, memo,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "未返済"
+                ]
+                calculated_rows.append(new_row)
+            creditors[creditor_name] -= transfer_amount
+            debtors[debtor_name] += transfer_amount
+            if creditors[creditor_name] < 1: del creditors[creditor_name]
+            if debtors[debtor_name] > -1: del debtors[debtor_name]
+        
+        st.session_state.transactions_to_add = calculated_rows
+        if not calculated_rows:
+            st.info("貸し借りは発生しませんでした。")
+
+# --- チェックボックスでの登録 ---
+if st.session_state.transactions_to_add:
+    st.markdown("---")
+    st.write("登録したい項目にチェックを入れてください。")
+    
+    selected_transactions = []
+    
+    for i, transaction in enumerate(st.session_state.transactions_to_add):
+        borrower, lender, amount, memo_text, _, _ = transaction
+        
+        label = f"{borrower} → {lender} に {amount:,}円"
+        if memo_text:
+            label += f" ({memo_text})"
+        
+        if st.checkbox(label, key=f"check_{i}", value=True):
+             selected_transactions.append(transaction)
+
+    if st.button("② チェックした項目を登録する"):
+        if selected_transactions:
+            sheet.append_rows(selected_transactions, value_input_option='USER_ENTERED')
+            st.success(f"{len(selected_transactions)}件の貸し借りデータを登録しました！")
+            st.balloons()
+            st.session_state.transactions_to_add = []
+            st.rerun()
         else:
-            # --- 複雑な割り勘を個別の貸し借りに分解する計算ロジック (切り上げ対応) ---
-            
-            # 1. 各メンバーのこの取引における収支を計算
-            balances = {member: 0 for member in members}
-            
-            # 支払った金額を加算（支払者で均等割りし、余りは先頭から分配）
-            num_lenders = len(lenders)
-            base_payment = total_amount // num_lenders
-            remainder_payment = total_amount % num_lenders
-            
-            for i, lender in enumerate(lenders):
-                payment = base_payment
-                if i < remainder_payment: # 先頭の 'remainder' 人が1円多く支払ったと見なす
-                    payment += 1
-                balances[lender] += payment
-                
-            # 負担すべき金額を減算（参加者で均等割りし、余りは先頭から分配）
-            num_participants = len(participants)
-            base_share = total_amount // num_participants
-            remainder_share = total_amount % num_participants
-            
-            for i, participant in enumerate(participants):
-                share = base_share
-                if i < remainder_share: # 先頭の 'remainder' 人が1円多く負担する
-                    share += 1
-                balances[participant] -= share
-
-            # 2. 収支から貸した人（プラス）と借りた人（マイナス）を特定
-            creditors = {name: balance for name, balance in balances.items() if balance > 0}
-            debtors = {name: balance for name, balance in balances.items() if balance < 0}
-            
-            # 3. 借りた人から貸した人への支払い記録（new_rows）を作成
-            new_rows = []
-            
-            while creditors and debtors:
-                creditor_name, creditor_amount = max(creditors.items(), key=lambda item: item[1])
-                debtor_name, debtor_amount = min(debtors.items(), key=lambda item: item[1])
-                transfer_amount = min(creditor_amount, -debtor_amount)
-                
-                if transfer_amount >= 1:
-                    new_row = [
-                        debtor_name,
-                        creditor_name,
-                        transfer_amount,
-                        memo,
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                        "未返済"
-                    ]
-                    new_rows.append(new_row)
-
-                creditors[creditor_name] -= transfer_amount
-                debtors[debtor_name] += transfer_amount
-
-                if creditors[creditor_name] < 1: del creditors[creditor_name]
-                if debtors[debtor_name] > -1: del debtors[debtor_name]
-
-            # 4. スプレッドシートに書き込み
-            if new_rows:
-                sheet.append_rows(new_rows, value_input_option='USER_ENTERED')
-                st.success(f"{len(new_rows)}件の貸し借りデータを登録しました！")
-                st.balloons()
-            else:
-                st.info("貸し借りは発生しませんでした。")
+            st.warning("登録する項目が選択されていません。")
